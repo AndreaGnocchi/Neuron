@@ -4,18 +4,52 @@
 #include <string.h>
 #include <stddef.h>
 
-#define THRESHOLD      64
-#define TASK_THRESHOLD (64 * 64 * 64)
+#define THRESHOLD      128
+#define TASK_THRESHOLD (128 * 128 * 128)
 
 static void mat_mul_small(int m, int n, int k,
-                        const float* restrict A, int lda,
-                        const float* restrict B, int ldb,
-                        float* restrict C, int ldc) {
+                          const float* restrict A, int lda,
+                          const float* restrict B, int ldb,
+                          float* restrict C, int ldc) {
   for (int i = 0; i < m; i++) {
-    for (int p = 0; p < k; p++) {
-      float a_ip = A[i * lda + p];
-      const float * restrict b_row = &B[p * ldb];
-      float * restrict c_row = &C[i * ldc];
+    const float* restrict a_row = &A[i * lda];
+    float* restrict c_row = &C[i * ldc];
+
+    int p = 0;
+    for (; p + 3 < k; p += 4) {
+      float a0 = a_row[p + 0];
+      float a1 = a_row[p + 1];
+      float a2 = a_row[p + 2];
+      float a3 = a_row[p + 3];
+
+      const float* restrict b0_row = &B[(p + 0) * ldb];
+      const float* restrict b1_row = &B[(p + 1) * ldb];
+      const float* restrict b2_row = &B[(p + 2) * ldb];
+      const float* restrict b3_row = &B[(p + 3) * ldb];
+
+      for (int j = 0; j < n; j++) {
+        c_row[j] += a0 * b0_row[j] +
+                      a1 * b1_row[j] +
+                      a2 * b2_row[j] +
+                      a3 * b3_row[j];
+      }
+    }
+
+    for (; p + 1 < k; p += 2) {
+      float a0 = a_row[p + 0];
+      float a1 = a_row[p + 1];
+
+      const float* restrict b0_row = &B[(p + 0) * ldb];
+      const float* restrict b1_row = &B[(p + 1) * ldb];
+
+      for (int j = 0; j < n; j++) {
+        c_row[j] += a0 * b0_row[j] + a1 * b1_row[j];
+      }
+    }
+
+    for (; p < k; p++) {
+      float a_ip = a_row[p];
+      const float* restrict b_row = &B[p * ldb];
       for (int j = 0; j < n; j++) {
         c_row[j] += a_ip * b_row[j];
       }
@@ -37,17 +71,17 @@ static void mat_mul_rec(int m, int n, int k,
   int n1 = n / 2, n2 = n - n1;
   int k1 = k / 2, k2 = k - k1;
 
-  const float *A_bot = A + m1 * lda;
-  const float *A_right = A + k1;
-  const float *A_bot_right = A + m1 * lda + k1;
+  const float* A_bot = A + m1 * lda;
+  const float* A_right = A + k1;
+  const float* A_bot_right = A + m1 * lda + k1;
   
-  const float *B_right = B + n1;
-  const float *B_bot = B + k1 * ldb;
-  const float *B_bot_right = B + k1 * ldb + n1;
+  const float* B_right = B + n1;
+  const float* B_bot = B + k1 * ldb;
+  const float* B_bot_right = B + k1 * ldb + n1;
   
-  float *C_right = C + n1;
-  float *C_bot = C + m1 * ldc;
-  float *C_bot_right = C + m1 * ldc + n1;
+  float* C_right = C + n1;
+  float* C_bot = C + m1 * ldc;
+  float* C_bot_right = C + m1 * ldc + n1;
 
   int is_small = ((size_t)m * (size_t)n * (size_t)k) <= TASK_THRESHOLD;
 
@@ -99,7 +133,7 @@ void mat_mul_set(int m, int n, int k,
                  float* restrict C, int ldc) {
   assert(m > 0 && n > 0 && k > 0);
 
-  #pragma omp parallel for schedule(static) if ((size_t)m * n > 64 * 64)
+  #pragma omp parallel for schedule(static) if ((size_t)m * n > 128 * 128)
   for (int i = 0; i < m; i++)
     memset(&C[i * ldc], 0, (size_t)n * sizeof(float));
 

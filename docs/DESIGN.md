@@ -60,11 +60,6 @@ phase 2:  C11 += A12 B21   C12 += A12 B22   C21 += A22 B21   C22 += A22 B22
 - Why OpenMP: the recursion maps directly onto tasks. A pthread version would need its own work queue.
 - The gate networks have tiny matrices, far below the threshold, so they never take the parallel path. It matters for the harder networks.
 
-## Testing
-- Matrix multiplication: compare against a naive triple loop on random matrices, including non-square and odd sizes, with different thread counts.
-- Activations: check each derivative against a numerical finite difference.
-- Networks: train every gate and check the full truth table after thresholding.
-
 ## Benchmarks
 - A simple benchmark times matrix multiplication across matrix sizes and thread counts.
 - Results are the times on my machine, with the CPU model and thread count written next to them.
