@@ -1,34 +1,57 @@
 # Compiler and archiving tools
-CC     := clang
-AR      = ar
-ARFLAGS = rcs
-CFLAGS  = -Wall -Wextra -O3 -fopenmp -MMD -MP -fPIE \
-	-mavx -march=native -mfma -ffast-math
+CC      := clang
+AR       = ar
+ARFLAGS  = rcs
+CFLAGS   = -Wall -Wextra -O3 -fopenmp -MMD -MP -fPIE \
+	-mavx -march=native -mfma -ffast-math -I$(INC_DIR) -I$(SRC_DIR)
+LDFLAGS  = -fopenmp -lm
 
 # Directories
-SRC_DIR   = src
-INC_DIR   = include
-BUILD_DIR = build
+SRC_DIR    = src
+INC_DIR    = include
+BUILD_DIR  = build
+BIN_DIR    = $(BUILD_DIR)/bin
+NEURON_DIR = $(SRC_DIR)/neurons
 
-# Target library name
+# Matrix static library
 TARGET_MAT = $(BUILD_DIR)/mat.a
+MAT_SRCS   = $(SRC_DIR)/mat.c $(SRC_DIR)/rng.c
+MAT_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/mat/%.o, $(MAT_SRCS))
 
-# Automatically find all .c files in the src directory
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
-DEPS = $(OBJS:.o=.d)
+# Neuron executable
+TARGET_NEURON = $(BIN_DIR)/neuron
+NEURON_MAIN   = $(SRC_DIR)/neurons.c
+NEURON_SRCS   = $(NEURON_MAIN) \
+	$(wildcard $(NEURON_DIR)/*.c) \
+	$(SRC_DIR)/activation.c \
+	$(SRC_DIR)/rng.c
+NEURON_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/neuron/%.o, $(NEURON_SRCS))
 
-all: $(BUILD_DIR) $(TARGET_MAT)
+DEPS = $(MAT_OBJS:.o=.d) $(NEURON_OBJS:.o=.d)
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+all: $(BUILD_DIR) $(BIN_DIR) $(TARGET_NEURON)
 
-$(TARGET_MAT): $(OBJS)
+$(BUILD_DIR) $(BIN_DIR):
+	mkdir -p $@
+
+.PHONY: mat
+mat: $(BUILD_DIR) $(TARGET_MAT)
+
+$(TARGET_MAT): $(MAT_OBJS)
 	rm -f $@
-	$(AR) $(ARFLAGS) $@ $(OBJS)
+	$(AR) $(ARFLAGS) $@ $(MAT_OBJS)
 
+$(TARGET_NEURON): $(NEURON_OBJS) $(TARGET_MAT) | $(BIN_DIR)
+	$(CC) $(NEURON_OBJS) $(TARGET_MAT) -o $@ $(LDFLAGS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+# Compile matrix sources into build/mat/...
+$(BUILD_DIR)/mat/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile neuron sources into build/neuron/...
+$(BUILD_DIR)/neuron/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
@@ -38,23 +61,22 @@ clean:
 TEST_DIR    = tests
 TEST_SRCS   = $(filter-out $(TEST_DIR)/a.c,$(wildcard $(TEST_DIR)/*.c))
 TEST_HDRS   = $(wildcard $(TEST_DIR)/*.h) $(wildcard $(SRC_DIR)/*.h) $(wildcard $(INC_DIR)/*.h)
-TEST_BIN    = $(BUILD_DIR)/run_tests
-TEST_CFLAGS = -Wall -Wextra -O3 -g -fopenmp
+TEST_BIN    = $(BIN_DIR)/run_tests
+TEST_CFLAGS = -Wall -Wextra -O3 -g -fopenmp -I$(INC_DIR) -I$(SRC_DIR)
 
-$(TEST_BIN): $(TEST_SRCS) $(TEST_HDRS) $(TARGET_MAT)
-	$(CC) $(TEST_CFLAGS) $(TEST_SRCS) $(TARGET_MAT) -o $@
+$(TEST_BIN): $(TEST_SRCS) $(TEST_HDRS) $(TARGET_MAT) | $(BIN_DIR)
+	$(CC) $(TEST_CFLAGS) $(TEST_SRCS) $(TARGET_MAT) -o $@ -lm
 
-# make test              runs the whole suite
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
 # Benchmark
 BENCH_DIR = bench
 BENCH_SRC = $(BENCH_DIR)/benchmark.c
-BENCH_BIN = $(BUILD_DIR)/bench
+BENCH_BIN = $(BIN_DIR)/bench
 
-$(BENCH_BIN): $(BENCH_SRC) $(TARGET_MAT)
-	$(CC) $(CFLAGS) $(BENCH_SRC) $(TARGET_MAT) -o $@
+$(BENCH_BIN): $(BENCH_SRC) $(TARGET_MAT) | $(BIN_DIR)
+	$(CC) $(CFLAGS) $(BENCH_SRC) $(TARGET_MAT) -o $@ -lm
 
 bench: $(BENCH_BIN)
 	OMP_WAIT_POLICY=ACTIVE OMP_NUM_THREADS=6 OMP_PROC_BIND=close OMP_PLACES=cores time -p ./$(BENCH_BIN)

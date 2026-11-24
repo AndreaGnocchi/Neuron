@@ -1,6 +1,7 @@
 #include "../include/mat.h"
 #include <assert.h>
 #include <omp.h>
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 
@@ -138,4 +139,17 @@ void mat_mul_set(int m, int n, int k,
     memset(&C[i * ldc], 0, (size_t)n * sizeof(float));
 
   mat_mul(m, n, k, A, lda, B, ldb, C, ldc);
+}
+
+void mat_print_gate(const float* X, const float* A2, const float* Y,
+                           int batch_size, int input_dim, const char* gate) {
+  printf("\nResult:\n");
+  for (int i = 0; i < batch_size; i++) {
+    printf("  %.0f %s %.0f = %.4f (target: %.0f)\n",
+           X[i * input_dim + 0],
+           gate,
+           X[i * input_dim + 1],
+           A2[i],
+           Y[i]);
+  }
 }
