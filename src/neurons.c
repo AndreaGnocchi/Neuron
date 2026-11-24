@@ -5,4 +5,7 @@
 int main(void) {
   printf("XOR neuron:\n\n");
   xor_neuron();
+
+  printf("\nXNOR neuron:\n\n");
+  xnor_neuron();
 } 
