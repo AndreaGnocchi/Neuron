@@ -1,3 +1,4 @@
+#include "train.h"
 #include "../activation.h"
 #include "../rng.h"
 #include "../../include/mat.h"
@@ -10,6 +11,8 @@
 #define BATCH_SIZE 4
 
 void train_hidden_gate(const float* Y, const char* name) {
+  rng_seed(1);
+  
   float X[BATCH_SIZE * INPUT_DIM] = {
     0.0f, 0.0f,
     0.0f, 1.0f,

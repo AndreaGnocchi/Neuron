@@ -17,3 +17,5 @@ void fill_random(float* p, size_t n) {
   for (size_t i = 0; i < n; i++)
     p[i] = rng_float();
 }
+
+void rng_seed(uint64_t s) { rng_state = s ? s : 0x9E3779B97F4A7C15ull; }

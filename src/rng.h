@@ -7,4 +7,6 @@
 uint32_t rng_u32(void);
 float rng_float(void);
 void fill_random(float* p, size_t n);
+void rng_seed(uint64_t s);
+
 #endif // RNG_H
