@@ -3,7 +3,7 @@ CC      := clang
 AR       = ar
 ARFLAGS  = rcs
 CFLAGS   = -Wall -Wextra -O3 -fopenmp -MMD -MP -fPIE \
-	-mavx -march=native -mfma -ffast-math -I$(INC_DIR) -I$(SRC_DIR)
+	-mavx2 -march=native -mfma -ffast-math -I$(INC_DIR) -I$(SRC_DIR)
 LDFLAGS  = -fopenmp -lm
 
 # Directories
