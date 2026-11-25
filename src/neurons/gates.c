@@ -1,5 +1,5 @@
 #include "train.h"
-#include "../../include/neurons.h"
+#include "../../include/neuron_gates.h"
 
 static const float AND_Y[4]  = {0, 0, 0, 1};
 static const float NAND_Y[4] = {1, 1, 1, 0};

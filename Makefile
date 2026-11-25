@@ -11,25 +11,27 @@ SRC_DIR    = src
 INC_DIR    = include
 BUILD_DIR  = build
 BIN_DIR    = $(BUILD_DIR)/bin
-NEURON_DIR = $(SRC_DIR)/neurons
+NEURON_GATES_DIR = $(SRC_DIR)/neurons
 
 # Matrix static library
-TARGET_MAT = $(BUILD_DIR)/mat.a
+TARGET_MAT = $(BUILD_DIR)/libmat.a
 MAT_SRCS   = $(SRC_DIR)/mat.c $(SRC_DIR)/rng.c
 MAT_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/mat/%.o, $(MAT_SRCS))
 
-# Neuron executable
-TARGET_NEURON = $(BIN_DIR)/neuron
-NEURON_MAIN   = $(SRC_DIR)/neurons.c
-NEURON_SRCS   = $(NEURON_MAIN) \
-	$(wildcard $(NEURON_DIR)/*.c) \
+# Gates executable
+TARGET_NEURON_GATES = $(BIN_DIR)/neuron_gates
+NEURON_GATES_MAIN   = $(SRC_DIR)/neuron_gates.c
+NEURON_GATES_SRCS   = $(NEURON_GATES_MAIN) \
+	$(NEURON_GATES_DIR)/linear.c \
+	$(NEURON_GATES_DIR)/hidden.c \
+	$(NEURON_GATES_DIR)/gates.c \
 	$(SRC_DIR)/activation.c \
 	$(SRC_DIR)/rng.c
-NEURON_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/neuron/%.o, $(NEURON_SRCS))
+NEURON_GATES_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/neuron_gates/%.o, $(NEURON_GATES_SRCS))
 
-DEPS = $(MAT_OBJS:.o=.d) $(NEURON_OBJS:.o=.d)
+DEPS = $(MAT_OBJS:.o=.d) $(NEURON_GATES_OBJS:.o=.d)
 
-all: $(BUILD_DIR) $(BIN_DIR) $(TARGET_NEURON)
+all: $(BUILD_DIR) $(BIN_DIR) $(TARGET_NEURON_GATES)
 
 $(BUILD_DIR) $(BIN_DIR):
 	mkdir -p $@
@@ -41,16 +43,16 @@ $(TARGET_MAT): $(MAT_OBJS)
 	rm -f $@
 	$(AR) $(ARFLAGS) $@ $(MAT_OBJS)
 
-$(TARGET_NEURON): $(NEURON_OBJS) $(TARGET_MAT) | $(BIN_DIR)
-	$(CC) $(NEURON_OBJS) $(TARGET_MAT) -o $@ $(LDFLAGS)
+$(TARGET_NEURON_GATES): $(NEURON_GATES_OBJS) $(TARGET_MAT) | $(BIN_DIR)
+	$(CC) $(NEURON_GATES_OBJS) $(TARGET_MAT) -o $@ $(LDFLAGS)
 
 # Compile matrix sources into build/mat/...
 $(BUILD_DIR)/mat/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile neuron sources into build/neuron/...
-$(BUILD_DIR)/neuron/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+# Compile neuron_gates sources into build/neuron_gates/...
+$(BUILD_DIR)/neuron_gates/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

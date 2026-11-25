@@ -1,5 +1,4 @@
-#include "../include/neurons.h"
-#include <iso646.h>
+#include "../include/neuron_gates.h"
 #include <stdio.h>
 
 int main(void) {
