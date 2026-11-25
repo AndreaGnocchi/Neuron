@@ -9,13 +9,13 @@
 #define THRESHOLD      128
 #define TASK_THRESHOLD (128 * 128 * 128)
 
-static inline void kernel_4x16(int k,
+static inline void kernel_6x16(int k,
                                const float* restrict A, int lda,
                                const float* restrict B, int ldb,
                                float* restrict C, int ldc) {
-  __m256 c[4][2];
+  __m256 c[6][2];
 
-  for (int r = 0; r < 4; r++) {
+  for (int r = 0; r < 6; r++) {
     c[r][0] = _mm256_loadu_ps(&C[r * ldc]);     // load 8 floats from C
     c[r][1] = _mm256_loadu_ps(&C[r * ldc + 8]); // load next 8 floats from C
   }
@@ -27,7 +27,7 @@ static inline void kernel_4x16(int k,
       __m256 b0 = _mm256_loadu_ps(&B[pu * ldb]);     // load 8 floats from B
       __m256 b1 = _mm256_loadu_ps(&B[pu * ldb + 8]); // load next 8 floats from B
 
-      for (int r = 0; r < 4; r++) {
+      for (int r = 0; r < 6; r++) {
         __m256 a = _mm256_broadcast_ss(&A[r * lda + pu]); // copy 1 float from A into all 8
         c[r][0] = _mm256_fmadd_ps(a, b0, c[r][0]);        // c = a * b0 + c
         c[r][1] = _mm256_fmadd_ps(a, b1, c[r][1]);        // c = a * b1 + c
@@ -39,38 +39,38 @@ static inline void kernel_4x16(int k,
   for (; p < k; p++) {
     __m256 b0 = _mm256_loadu_ps(&B[p * ldb]);     // load 8 floats from B
     __m256 b1 = _mm256_loadu_ps(&B[p * ldb + 8]); // load next 8 floats from B
-    for (int r = 0; r < 4; r++) {
+    for (int r = 0; r < 6; r++) {
       __m256 a = _mm256_broadcast_ss(&A[r * lda + p]); // copy 1 float from A into all 8
       c[r][0] = _mm256_fmadd_ps(a, b0, c[r][0]);       // c = a * b0 + c
       c[r][1] = _mm256_fmadd_ps(a, b1, c[r][1]);       // c = a * b1 + c
     }
   }
   
-  for (int r = 0; r < 4; r++) {
+  for (int r = 0; r < 6; r++) {
     _mm256_storeu_ps(&C[r * ldc], c[r][0]);     // store the 8 floats back in C
     _mm256_storeu_ps(&C[r * ldc + 8], c[r][1]); // store the next 8 floats back in C
   }
 }
 
-static inline void kernel_4x8(int k,
+static inline void kernel_6x8(int k,
                               const float* restrict A, int lda,
                               const float* restrict B, int ldb,
                               float* restrict C, int ldc) {
-  __m256 c[4];
+  __m256 c[6];
 
-  for (int r = 0; r < 4; r++) {
+  for (int r = 0; r < 6; r++) {
     c[r] = _mm256_loadu_ps(&C[r * ldc]);  // load 8 floats from C
   }
 
   for (int p = 0; p < k; p++) {
     __m256 b = _mm256_loadu_ps(&B[p * ldb]); // load 8 floats from B
-    for (int r = 0; r < 4; r++) {
+    for (int r = 0; r < 6; r++) {
       __m256 a = _mm256_broadcast_ss(&A[r * lda + p]); // copy 1 float from A into all 8
       c[r] = _mm256_fmadd_ps(a, b, c[r]); // c = a * b + c
     }
   }
   
-  for (int r = 0; r < 4; r++) {
+  for (int r = 0; r < 6; r++) {
     _mm256_storeu_ps(&C[r * ldc], c[r]); // store the 8 floats back in C
   }
 }
@@ -96,20 +96,20 @@ static void mat_mul_small(int m, int n, int k,
                           float* restrict C, int ldc) {
   int i = 0;
 
-  // Blocks of 4 rows
-  for (; i + 3 < m; i += 4) {
+  // Blocks of 6 rows
+  for (; i + 5 < m; i += 6) {
     int j = 0;
     for (; j + 15 < n; j += 16) {
-      kernel_4x16(k, &A[i * lda], lda, &B[j], ldb, &C[i * ldc + j], ldc);
+      kernel_6x16(k, &A[i * lda], lda, &B[j], ldb, &C[i * ldc + j], ldc);
     }
 
     for (; j + 7 < n; j += 8) {
-      kernel_4x8(k, &A[i * lda], lda, &B[j], ldb, &C[i * ldc + j], ldc);
+      kernel_6x8(k, &A[i * lda], lda, &B[j], ldb, &C[i * ldc + j], ldc);
     }
 
     // Scalar tail columns (n % 8)
     for (; j < n; j++) {
-      for (int r = 0; r < 4; r++) {
+      for (int r = 0; r < 6; r++) {
         float acc = C[(i + r) * ldc + j];
         for (int p = 0; p < k; p++)
           acc += A[(i + r) * lda + p] * B[p * ldb + j];
@@ -118,7 +118,7 @@ static void mat_mul_small(int m, int n, int k,
     }
   }
 
-  // Rows left (m % 4)
+  // Rows left (m % 6)
   for (; i < m; i++) {
     int j = 0;
     for (; j + 7 < n; j += 8) {
