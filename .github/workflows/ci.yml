@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.cc }}
+    # The matrix kernels use AVX2 and FMA, so this must run on an x86-64 runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the OpenMP runtime for clang
+        if: matrix.cc == 'clang'
+        run: sudo apt-get update && sudo apt-get install -y libomp-dev
+
+      - name: Show toolchain
+        run: |
+          uname -m
+          nproc
+          ${{ matrix.cc }} --version
+          make --version | head -n 1
+          grep -o -w -E 'avx2|fma' /proc/cpuinfo | sort -u
+
+      - name: Build
+        run: make CC=${{ matrix.cc }} -j"$(nproc)"
+
+      - name: Run tests
+        run: make CC=${{ matrix.cc }} test
