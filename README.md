@@ -12,7 +12,7 @@ It is not meant to be a general deep learning library, and it is not a compariso
 
 ## Usage
 
-Build both programs (`build/bin/neuron_gates` and `build/bin/mnist`):
+Build both programs (`build/bin/gates` and `build/bin/mnist`):
 
 ```bash
 make
@@ -21,7 +21,7 @@ make
 Or let `make` build and run one of them:
 
 ```bash
-make neuron-gates-run
+make gates-run
 make mnist-run
 ```
 
@@ -33,7 +33,14 @@ The MNIST program takes the four IDX files (train images, train labels, test ima
 ./build/bin/mnist train-images-idx3-ubyte train-labels-idx1-ubyte t10k-images-idx3-ubyte t10k-labels-idx1-ubyte
 ```
 
-The header of every file is checked (magic numbers, matching counts, 28x28 images) and pixels are scaled to [0, 1]. With fewer than four arguments the program trains on a synthetic 28x28 dataset whose images depend on the label, so it runs without the data. That dataset is easy to separate, so its accuracy says nothing about MNIST. The loss and the test accuracy are printed after epochs 0, 5, 10, 15 and 20.
+Or put the four files in `src/neurons/mnist/data` (git does not track them) and let `make` pass them:
+
+```bash
+make mnist-run-args
+make mnist-run-args MNIST_DATA_DIR=$HOME/data/mnist
+```
+
+The header of every file is checked (magic numbers, matching counts, 28x28 images) and pixels are scaled to [0, 1]. With no arguments the program trains on a synthetic 28x28 dataset whose images depend on the label, so it runs without the data. That dataset is easy to separate, so its accuracy says nothing about MNIST. Any other number of arguments prints a usage message on stderr and exits with 1. The test accuracy is printed once before training, then the loss and the test accuracy are printed after epochs 0, 5, 10, 15 and 20.
 
 A file that cannot be opened or has an invalid header is reported on stderr and the program exits with a non-zero code.
 
@@ -50,16 +57,16 @@ The project has three layers: a matrix multiplication, the activation functions,
 | Part        | File                                                  | What it does                                                                   |
 |-------------|-------------------------------------------------------|--------------------------------------------------------------------------------|
 | Matmul      | [src/mat.c](src/mat.c)                                | `C += A . B` and `C = A . B` with cache blocking, AVX2/FMA kernels and OpenMP  |
-| Activations | [src/activation.c](src/activation.c)                  | Sigmoid, and the derivatives of sigmoid and tanh                               |
+| Activations | [src/activation.c](src/activation.c)                  | Sigmoid, softmax and ReLU, and the derivatives of sigmoid, tanh and ReLU       |
 | RNG         | [src/rng.c](src/rng.c)                                | Random numbers for weight initialization and shuffling                         |
-| Gates       | [src/neurons/linear.c](src/neurons/linear.c), [src/neurons/hidden.c](src/neurons/hidden.c), [src/neurons/gates.c](src/neurons/gates.c) | The one-neuron and two-layer gate networks and their training |
-| MNIST       | [src/neurons/mnist.c](src/neurons/mnist.c)            | IDX loading, the 784-256-10 network and mini-batch SGD                         |
+| Gates       | [src/neurons/gates](src/neurons/gates)                | `linear.c` and `hidden.c` train the one-neuron and the two-layer network, `gates.c` holds the six truth tables and `neuron_gates.c` runs them all |
+| MNIST       | [src/neurons/mnist/mnist.c](src/neurons/mnist/mnist.c) | IDX loading, the 784-256-10 network and mini-batch SGD                        |
 
 **Networks.** AND, OR, NAND and NOR are linearly separable, so a single neuron with 2 inputs is enough. XOR and XNOR are not, so they use 2 inputs, 2 hidden neurons and 1 output, fully connected. Inputs and targets are 0 or 1. Every neuron computes `a = f(w . x + b)`.
 
 **Gates.** Full-batch gradient descent on the 4 rows of the truth table, with learning rate 0.5 and a mean squared error loss. Weights and biases start uniform in [-1, 1) from a fixed seed, so every run gives the same result.
 
-**MNIST.** 784 inputs, 256 tanh hidden neurons and 10 softmax outputs. The whole batch goes through each layer as one matrix product, so the forward and backward passes are just a few calls to `mat_mul`. The loss is cross-entropy, so the error of the last layer is simply `P - one_hot(y)`. Training is mini-batch SGD with batch size 64 and learning rate 0.01, and the training set is reshuffled every epoch. All buffers of a batch live in a workspace allocated once and 32-byte aligned. Weights use Xavier initialization and biases start at 0.
+**MNIST.** 784 inputs, 256 ReLU hidden neurons and 10 softmax outputs. The whole batch goes through each layer as one matrix product, so the forward and backward passes are just a few calls to `mat_mul`. The loss is cross-entropy, so the error of the last layer is simply `P - one_hot(y)`. Training is mini-batch SGD with batch size 64 and learning rate 0.5, and the training set is reshuffled every epoch. All buffers of a batch live in a workspace allocated once and 32-byte aligned. Weights use Xavier initialization and biases start at 0.
 
 **Activations.**
 
@@ -67,23 +74,20 @@ The project has three layers: a matrix multiplication, the activation functions,
 |------------------------|--------------|---------|------------------------------|
 | AND, OR, NAND, NOR     | none         | sigmoid | `a(1 - a)`                   |
 | XOR, XNOR              | sigmoid      | tanh    | `a(1 - a)` and `1 - a^2`     |
-| MNIST                  | tanh         | softmax | `1 - a^2`, softmax folded into the cross-entropy error |
+| MNIST                  | ReLU         | softmax | `1 if a > 0 else 0`, softmax folded into the cross-entropy error |
 
-The derivatives are computed from the stored output, so backpropagation never recomputes the exponentials. Softmax subtracts the row maximum before the exponentials so they cannot overflow. The activations are written directly into each network, there is no layer or activation interface.
+The derivatives are computed from the stored output, so backpropagation never recomputes the exponentials. Softmax subtracts the row maximum before the exponentials so they cannot overflow. The activations are plain functions that each network calls directly (the tanh output of XOR and XNOR is `tanhf` from libm), there is no layer or activation interface.
 
 **Matrix multiplication.** Row-major `float` matrices with an explicit leading dimension, so a block of a larger matrix can be passed without copying. C is cut into blocks of 60x256 and k into steps of 64, so a block of A (15 KiB) and a block of B (64 KiB) stay in cache. The micro-kernel `kernel_6x16` keeps a 6x16 tile of C in 12 YMM registers and does 12 FMAs per step of k. `kernel_6x8` is the same with 8 columns, `kernel_1x8` handles the rows left over, and the last columns use scalar code. The loops over the blocks of C are an OpenMP `parallel for`, and a thread owns whole blocks of C and walks k in order, so no synchronization is needed and the result is the same for any thread count. Below `128 * 128 * 128` multiply-adds it runs on the calling thread, which includes everything the gates do. The products with a transpose write the transpose into a workspace buffer and call the same `mat_mul`, so there is a single multiplication routine. The full reasoning is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Known limitations
 
 - Linux x86-64 with AVX2 and FMA only. There is no fallback for other CPUs and no GPU support.
-- All values are `float`.
-- Only sigmoid, tanh and softmax, each written directly into the networks. There is no activation interface and no ReLU-family function.
+- Only sigmoid, tanh, softmax and ReLU, as plain functions that the networks call directly. There is no activation interface and no Leaky ReLU.
 - Plain SGD with a fixed learning rate. No momentum, no Adam, no learning rate schedule.
 - The gate networks and the MNIST network have fixed sizes that are constants in the source, and MNIST has a single hidden layer.
-- The gates program prints its results but does not check them, and nothing in the test suite covers the networks, the activations or the IDX loader.
-- The multiplication is only tuned for the author's CPU, and the block sizes are not detected at run time.
+- The multiplication is only tuned for my CPU, and the block sizes are not detected at run time.
 - The library is built with `-ffast-math` and `-march=native`, so results can differ slightly between compilers and CPUs.
-- The Makefile uses clang by default. `make CC=gcc` works too and is what CI tests, but the sanitizer targets are only run with clang by the author.
 - The input is always the IDX files given on the command line. There is no model saving or loading, and no MNIST accuracy is reported here.
 
 ## Documentation
@@ -114,13 +118,15 @@ Neuron
 │   ├── activation.c
 │   ├── activation.h
 │   ├── mat.c
-│   ├── neuron_gates.c
 │   ├── neurons
-│   │   ├── gates.c
-│   │   ├── hidden.c
-│   │   ├── linear.c
-│   │   ├── mnist.c
-│   │   └── train.h
+│   │   ├── gates
+│   │   │   ├── gates.c
+│   │   │   ├── hidden.c
+│   │   │   ├── linear.c
+│   │   │   ├── neuron_gates.c
+│   │   │   └── train.h
+│   │   └── mnist
+│   │       └── mnist.c
 │   ├── rng.c
 │   └── rng.h
 └── tests
@@ -137,11 +143,18 @@ make all
 # Compile only the matrix multiplication library (build/libmat.a)
 make mat
 
+# Compile only one program (build/bin/gates or build/bin/mnist)
+make gates
+make mnist
+
 # Compile and run the gates
-make neuron-gates-run
+make gates-run
 
 # Compile and run MNIST (synthetic data without arguments)
 make mnist-run
+
+# Compile and run MNIST on the four files in src/neurons/mnist/data
+make mnist-run-args
 
 # Clean all build artifacts
 make clean

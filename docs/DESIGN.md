@@ -31,24 +31,25 @@ MNIST is a bigger network, with the whole batch going through each layer as one 
 
 ```
  X (B x 784)        A1 (B x 256)         P (B x 10)
-(784 pixels) --W1--> (256 tanh) --W2--> (10 softmax)
+(784 pixels) --W1--> (256 ReLU) --W2--> (10 softmax)
 ```
 
 ## Activations
 - AND, OR, NAND, NOR: no hidden layer, sigmoid at the output.
 - XOR, XNOR: sigmoid in the hidden layer, tanh at the output.
-- MNIST: tanh in the hidden layer, softmax at the output.
-- Not pluggable: `src/activation.c` only has `sigmoid`, `sigmoid_deriv` and `tanh_deriv`. The tanh and softmax forward passes are written directly in the networks (`tanhf` in `hidden.c` and `mnist.c`, `softmax_rows` in `mnist.c`), and there is no (forward, derivative) interface and no ReLU-family function.
+- MNIST: ReLU in the hidden layer, softmax at the output.
+- Not pluggable: `src/activation.c` has plain functions (`sigmoid`, `softmax`, `softmax_rows`, `relu`) and the derivatives `sigmoid_deriv`, `tanh_deriv` and `relu_deriv`. The networks call them directly, and the tanh output of XOR and XNOR is `tanhf` from libm. There is no (forward, derivative) interface and no Leaky ReLU.
 - Initialization: the gates start with weights and biases uniform in [-1, 1) from a fixed seed. MNIST uses Xavier (see below) with biases at 0.
 
 | Function   | f(x)                          | f'(x)                  | Range         |
 |------------|-------------------------------|------------------------|---------------|
 | sigmoid    | `1 / (1 + e^-x)`              | `a(1 - a)`             | (0, 1)        |
 | tanh       | `(e^x - e^-x) / (e^x + e^-x)` | `1 - a^2`              | (-1, 1)       |
+| ReLU       | `max(0, x)`                   | `1 if x > 0 else 0`    | [0, inf)      |
 
-`a = f(x)`. For sigmoid and tanh the derivative is computed from the stored output, so backprop never recomputes the exponentials.
+`a = f(x)`. The derivatives are computed from the stored output, so backprop never recomputes the exponentials.
 
-Softmax turns the 10 outputs of a row into probabilities. The row maximum is subtracted before the exponentials, so they cannot overflow:
+`softmax` turns a row of outputs into probabilities and `softmax_rows` applies it to every row of a batch. The row maximum is subtracted before the exponentials, so they cannot overflow:
 
 ```
 p_i = e^(z_i - max(z)) / sum_j e^(z_j - max(z))
@@ -56,20 +57,20 @@ p_i = e^(z_i - max(z)) / sum_j e^(z_j - max(z))
 
 ## MNIST
 - Data: the four IDX files (train images, train labels, test images, test labels) are given on the command line. The header is checked (magic numbers, matching counts, 28x28 images) and pixels are scaled to [0, 1].
-- Without arguments the program trains on a synthetic 28x28 dataset whose images depend on the label, so it runs without the data.
-- Network: 784 inputs, 256 tanh hidden neurons, 10 softmax outputs. Weights are uniform in +-sqrt(6 / (fan_in + fan_out)) (Xavier), biases start at 0.
+- Without arguments the program trains on a synthetic 28x28 dataset whose images depend on the label, so it runs without the data. Any other number of arguments is a usage error.
+- Network: 784 inputs, 256 ReLU hidden neurons, 10 softmax outputs. Weights are uniform in +-sqrt(6 / (fan_in + fan_out)) (Xavier), biases start at 0.
 - Loss: cross-entropy. With a softmax output the error of the last layer is just `P - one_hot(y)`.
-- Training: mini-batch SGD, batch size 64, learning rate 0.01, the training set is reshuffled every epoch. The loss and the test accuracy are printed every 5 epochs.
+- Training: mini-batch SGD, batch size 64, learning rate 0.5, the training set is reshuffled every epoch. The test accuracy is printed once before training, then the loss and the test accuracy are printed after epochs 0, 5, 10, 15 and 20.
 - All buffers of a batch live in a workspace allocated once and 32-byte aligned.
 
 ```
-forward:   Z1 = X . W1 + b1        A1 = tanh(Z1)
+forward:   Z1 = X . W1 + b1        A1 = ReLU(Z1)
            Z2 = A1 . W2 + b2       P  = softmax(Z2)
 
 backward:  dZ2 = (P - one_hot(y)) / B
            dW2 = A1^T . dZ2        db2 = column sums of dZ2
            dA1 = dZ2 . W2^T
-           dZ1 = dA1 * (1 - A1^2)
+           dZ1 = dA1 * (1 if A1 > 0 else 0)
            dW1 = X^T . dZ1         db1 = column sums of dZ1
 ```
 
@@ -108,9 +109,10 @@ parallel for (i0 in 0..m step MC, j0 in 0..n step NC)
 
 ## Benchmarks
 - A simple benchmark (`bench/benchmark.c`) times one `mat_mul` of two 4096x4096 matrices. The size is a constant in the file and the thread count is set through `OMP_NUM_THREADS` (6 in `make bench`).
-- Results are the times on the author's machine, with the CPU model and thread count written next to them.
+- Results are the times on my machine, with the CPU model and thread count written next to them.
 - No comparison with other matrix libraries.
 - Also used to pick the block sizes.
 
 ## Open questions
 - Which harder networks after MNIST, if any
+- He initialization instead of Xavier for the ReLU hidden layer of MNIST
