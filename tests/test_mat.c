@@ -46,6 +46,11 @@ typedef struct {
 
 static const float SENTINEL = 31337.0f;
 
+#define T_MC 60
+#define T_NC 256
+#define T_KC 64
+#define T_PAR_DIM 128
+
 static void case_init(case_t* c, int m, int n, int k, int pad_a, int pad_b, int pad_c) {
   c->m = m; c->n = n; c->k = k;
   c->lda = k + pad_a;
@@ -209,7 +214,7 @@ static void test_identity(void) {
 }
 
 static void test_zero_matrices(void) {
-  const int N = 100;
+  const int N = 150;
   float* Z = _malloc((size_t)N * N), *X = _malloc((size_t)N * N), *C = _malloc((size_t)N * N);
   fill_const(Z, (size_t)N * N, 0.0f);
   fill_random(X, (size_t)N * N);
@@ -250,7 +255,7 @@ static void test_accumulate_twice(void) {
 }
 
 static void test_set_idempotent(void) {
-  const int m = 80, n = 77, k = 66;
+  const int m = 130, n = 270, k = 131;
   case_t c;
   case_init(&c, m, n, k, 0, 0, 0);
   float* first = _malloc(c.c_sz);
@@ -273,12 +278,34 @@ static void test_small_shapes_exhaustive(void) {
       }
 }
 
-static void test_threshold_boundaries(void) {
-  const int dims[] = {63, 64, 65, 66};
-  for (int a = 0; a < 4; a++)
-    for (int b = 0; b < 4; b++)
-      for (int d = 0; d < 4; d++)
-        run_shape(dims[a], dims[b], dims[d], 0, 0, 0);
+static void test_kernel_tile_tails(void) {
+  const int ns[] = {1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31, 32, 33};
+  const int ks[] = {1, 2, 3, 4, 5, 7, 8, 9};
+  for (int m = 1; m <= 13; m++)
+    for (size_t b = 0; b < sizeof(ns) / sizeof(ns[0]); b++)
+      for (size_t d = 0; d < sizeof(ks) / sizeof(ks[0]); d++)
+        run_shape(m, ns[b], ks[d], 0, 0, 0);
+}
+
+static void test_block_boundaries(void) {
+  const int ms[] = {T_MC - 1, T_MC, T_MC + 1, 2 * T_MC - 1, 2 * T_MC, 2 * T_MC + 1};
+  const int ns[] = {T_NC - 1, T_NC, T_NC + 1};
+  const int ks[] = {T_KC - 1, T_KC, T_KC + 1, 2 * T_KC, 2 * T_KC + 1};
+  for (size_t a = 0; a < sizeof(ms) / sizeof(ms[0]); a++)
+    for (size_t b = 0; b < sizeof(ns) / sizeof(ns[0]); b++)
+      for (size_t d = 0; d < sizeof(ks) / sizeof(ks[0]); d++)
+        run_shape(ms[a], ns[b], ks[d], 0, 0, 0);
+}
+
+static void test_parallel_threshold_boundaries(void) {
+  const int D = T_PAR_DIM;
+  run_shape(D, D, D, 0, 0, 0);
+  run_shape(D + 1, D, D, 0, 0, 0);
+  run_shape(D, D + 1, D, 0, 0, 0);
+  run_shape(D, D, D + 1, 0, 0, 0);
+  run_shape(D - 1, D, D, 0, 0, 0);
+  run_shape(D, D - 1, D, 0, 0, 0);
+  run_shape(D, D, D - 1, 0, 0, 0);
 }
 
 static void test_odd_uneven_splits(void) {
@@ -286,13 +313,14 @@ static void test_odd_uneven_splits(void) {
       {1, 1, 200}, {200, 1, 1}, {1, 200, 1}, {1, 200, 200}, {200, 1, 200},
       {200, 200, 1}, {127, 129, 131}, {255, 3, 257}, {3, 255, 129}, {129, 65, 7},
       {7, 129, 65}, {193, 191, 67},
+      {121, 513, 129}, {125, 271, 131}, {61, 257, 65}, {179, 519, 193},
   };
   for (size_t s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++)
     run_shape(shapes[s][0], shapes[s][1], shapes[s][2], 0, 0, 0);
 }
 
 static void test_leading_dimensions(void) {
-  const int shapes[][3] = {{10, 12, 14}, {65, 70, 66}, {100, 129, 97}, {130, 130, 130}};
+  const int shapes[][3] = {{10, 12, 14}, {65, 70, 66}, {100, 129, 97}, {130, 130, 130}, {61, 257, 65}};
   for (size_t s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++) {
     run_shape(shapes[s][0], shapes[s][1], shapes[s][2], 5, 0, 0);
     run_shape(shapes[s][0], shapes[s][1], shapes[s][2], 0, 7, 0);
@@ -351,19 +379,21 @@ static void test_set_only_touches_block(void) {
 }
 
 static void test_set_large_parallel_memset(void) {
-  const int shapes[][3] = {{64, 64, 10}, {65, 64, 10}, {64, 65, 10}, {1, 4097, 3}, {4097, 1, 3}};
+  const int shapes[][3] = {{128, 128, 10}, {129, 128, 10}, {128, 129, 10},
+                           {1, 128 * 128 + 1, 3}, {128 * 128 + 1, 1, 3}};
   for (size_t s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++)
     run_shape(shapes[s][0], shapes[s][1], shapes[s][2], 0, 0, 2);
 }
 
-static void test_large_task_path(void) {
+static void test_large_parallel_path(void) {
   run_shape(256, 256, 256, 0, 0, 0);
   run_shape(300, 260, 280, 4, 4, 4);
   run_shape(512, 100, 400, 0, 0, 0);
+  run_shape(183, 600, 200, 1, 3, 5);
 }
 
 static void test_thread_count_independence(void) {
-  const int m = 257, n = 191, k = 263;
+  const int m = 257, n = 300, k = 263;
   case_t c;
   case_init(&c, m, n, k, 0, 0, 0);
   float* base = _malloc(c.c_sz);
@@ -406,7 +436,7 @@ static void test_repeated_runs_stable(void) {
 }
 
 static void test_nested_in_parallel_region(void) {
-  const int m = 100, n = 100, k = 100, T = 4;
+  const int m = 140, n = 140, k = 140, T = 4;
   case_t cs[4];
   double* refs[4], *bnds[4];
   
@@ -454,10 +484,25 @@ static void test_special_values(void) {
   
   CHECK(nans == 0);
   case_free(&c);
+
+  case_init(&c, m, n, k, 0, 0, 0);
+  c.B[(size_t)2 * c.ldb + 20] = NAN;
+  c.B[(size_t)66 * c.ldb + 66] = NAN;
+  case_zero_C(&c);
+  mat_mul(m, n, k, c.A, c.lda, c.B, c.ldb, c.C, c.ldc);
+  bad = 0;
+  for (int i = 0; i < m; i++)
+    for (int j = 0; j < n; j++) {
+      int isn = isnan(c.C[(size_t)i * c.ldc + j]);
+      if ((j == 20 || j == 66) != (isn != 0))
+        bad++;
+    }
+  CHECK(bad == 0);
+  case_free(&c);
 }
 
 static void test_small_integer_exactness(void) {
-  const int shapes[][3] = {{67, 71, 73}, {128, 128, 128}, {131, 70, 129}};
+  const int shapes[][3] = {{67, 71, 73}, {128, 128, 128}, {131, 70, 129}, {61, 257, 65}};
   for (size_t s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++) {
     int m = shapes[s][0], n = shapes[s][1], k = shapes[s][2];
     case_t c;
@@ -489,9 +534,9 @@ static void test_small_integer_exactness(void) {
 
 static void test_random_fuzz(void) {
   for (int iter = 0; iter < 60; iter++) {
-    int m = 1 + (int)(rng_u32() % 200);
-    int n = 1 + (int)(rng_u32() % 200);
-    int k = 1 + (int)(rng_u32() % 200);
+    int m = 1 + (int)(rng_u32() % 150);
+    int n = 1 + (int)(rng_u32() % 300);
+    int k = 1 + (int)(rng_u32() % 150);
     run_shape(m, n, k, (int)(rng_u32() % 4), (int)(rng_u32() % 4), (int)(rng_u32() % 4));
   }
 }
@@ -506,13 +551,15 @@ void run_all_mat_tests(void) {
   test_accumulate_twice();
   test_set_idempotent();
   test_small_shapes_exhaustive();
-  test_threshold_boundaries();
+  test_kernel_tile_tails();
+  test_block_boundaries();
+  test_parallel_threshold_boundaries();
   test_odd_uneven_splits();
   test_leading_dimensions();
   test_submatrix_views();
   test_set_only_touches_block();
   test_set_large_parallel_memset();
-  test_large_task_path();
+  test_large_parallel_path();
   test_thread_count_independence();
   test_repeated_runs_stable();
   test_nested_in_parallel_region();
