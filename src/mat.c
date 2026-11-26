@@ -1,6 +1,7 @@
 #include "../include/mat.h"
 #include <assert.h>
 #include <omp.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
@@ -135,10 +136,18 @@ static void mat_mul_small(int m, int n, int k,
   }
 }
 
-void mat_mul(int m, int n, int k,
-             const float* restrict A, int lda,
-             const float* restrict B, int ldb,
-             float* restrict C, int ldc) {
+static void mat_mul_core(int m, int n, int k,
+                         const float* restrict A, int lda,
+                         const float* restrict B, int ldb,
+                         float* restrict C, int ldc, bool zero) {
+  assert(m > 0 && n > 0 && k > 0);
+  
+  if (zero) {
+    #pragma omp parallel for schedule(static) if ((size_t)m * n > 128 * 128)
+    for (int i = 0; i < m; i++)
+      memset(&C[i * ldc], 0, (size_t)n * sizeof(float));
+  }
+  
   #pragma omp parallel for collapse(2) schedule(dynamic, 1) \
       if ((size_t)m * (size_t)n * (size_t)k > (128u * 128u * 128u))
   for (int i0 = 0; i0 < m; i0 += MC) {
@@ -157,17 +166,18 @@ void mat_mul(int m, int n, int k,
   }
 }
 
+void mat_mul(int m, int n, int k,
+             const float* restrict A, int lda,
+             const float* restrict B, int ldb,
+             float* restrict C, int ldc) {
+  mat_mul_core(m, n, k, A, lda, B, ldb, C, ldc, false);
+}
+
 void mat_mul_set(int m, int n, int k,
                  const float* restrict A, int lda,
                  const float* restrict B, int ldb,
                  float* restrict C, int ldc) {
-  assert(m > 0 && n > 0 && k > 0);
-
-  #pragma omp parallel for schedule(static) if ((size_t)m * n > 128 * 128)
-  for (int i = 0; i < m; i++)
-    memset(&C[i * ldc], 0, (size_t)n * sizeof(float));
-
-  mat_mul(m, n, k, A, lda, B, ldb, C, ldc);
+  mat_mul_core(m, n, k, A, lda, B, ldb, C, ldc, true);
 }
 
 void mat_print_gate(const float* X, const float* A2, const float* Y,
