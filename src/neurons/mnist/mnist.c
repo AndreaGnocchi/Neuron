@@ -1,6 +1,6 @@
-#include "../rng.h"
-#include "../activation.h"
-#include "../../include/mat.h"
+#include "../../rng.h"
+#include "../../activation.h"
+#include "../../../include/mat.h"
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -272,42 +272,18 @@ static void add_bias_rows(float* M, const float* bias, int rows, int cols) {
   }
 }
 
-static void apply_tanh(const float* Z, float* A, int n) {
+static void apply_relu(const float* Z, float* A, int n) {
   for (int i = 0; i < n; i++) {
-    A[i] = tanhf(Z[i]);
-  }
-}
-
-static void softmax_rows(const float* Z, float* probs, int rows, int cols) {
-  for (int r = 0; r < rows; r++) {
-    const float* z_row = &Z[r * cols];
-    float* p_row = &probs[r * cols];
-
-    float max_val = z_row[0];
-    for (int c = 1; c < cols; c++) {
-      if (z_row[c] > max_val) max_val = z_row[c];
-    }
-
-    float sum = 0.0f;
-    for (int c = 0; c < cols; c++) {
-      float e = expf(z_row[c] - max_val);
-      p_row[c] = e;
-      sum += e;
-    }
-
-    float inv_sum = 1.0f / sum;
-    for (int c = 0; c < cols; c++) {
-      p_row[c] *= inv_sum;
-    }
+    A[i] = relu(Z[i]);
   }
 }
 
 static float forward_batch(const mlp_t* net, workspace_t* ws, int B,
                            const uint8_t* labels, int compute_loss) {
-  // Layer 1: Z1 = X * W1 + b1, A1 = tanh(Z1)
+  // Layer 1: Z1 = X * W1 + b1, A1 = ReLU(Z1)
   mat_mul_set(B, HIDDEN_DIM, IN_DIM, ws->X, IN_DIM, net->W1, HIDDEN_DIM, ws->Z1, HIDDEN_DIM);
   add_bias_rows(ws->Z1, net->b1, B, HIDDEN_DIM);
-  apply_tanh(ws->Z1, ws->A1, B * HIDDEN_DIM);
+  apply_relu(ws->Z1, ws->A1, B * HIDDEN_DIM);
 
   // Layer 2: Z2 = A1 * W2 + b2, probs = softmax(Z2)
   mat_mul_set(B, OUT_DIM, HIDDEN_DIM, ws->A1, HIDDEN_DIM, net->W2, OUT_DIM, ws->Z2, OUT_DIM);
@@ -358,9 +334,9 @@ static void backward_and_step(mlp_t* net, workspace_t* ws, int B,
   memset(ws->dA1, 0, (size_t)B * HIDDEN_DIM * sizeof(float));
   mat_mul(B, HIDDEN_DIM, OUT_DIM, ws->dZ2, OUT_DIM, ws->W2_T, HIDDEN_DIM, ws->dA1, HIDDEN_DIM);
 
-  // dZ1 = dA1 * tanh_deriv(A1)
+  // dZ1 = dA1 * ReLU_deriv(A1)
   for (int i = 0; i < B * HIDDEN_DIM; i++) {
-    ws->dZ1[i] = ws->dA1[i] * tanh_deriv(ws->A1[i]);
+    ws->dZ1[i] = ws->dA1[i] * relu_deriv(ws->A1[i]);
   }
 
   // db1 = sum_b dZ1[b]
@@ -431,8 +407,8 @@ static void shuffle_indices(int* idx, int n) {
 int main(int argc, char* argv[]) {
   int epochs     = 20;
   int batch_size = 64;
-  float lr       = 0.01f;
-
+  float lr       = 0.5f;
+  
   dataset_t train_ds, test_ds;
   if (argc == 5) {
     train_ds = load_mnist(argv[1], argv[2]);

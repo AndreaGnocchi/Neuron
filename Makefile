@@ -15,11 +15,13 @@ TSAN_FLAGS = -fsanitize=thread -g -O1 -fno-omit-frame-pointer
 UBSAN_FLAGS = -fsanitize=undefined -g -O1 -fno-omit-frame-pointer
 
 # Directories
-SRC_DIR          = src
-INC_DIR          = include
-BUILD_DIR        = build
-BIN_DIR          = $(BUILD_DIR)/bin
-NEURON_GATES_DIR = $(SRC_DIR)/neurons
+SRC_DIR    = src
+INC_DIR    = include
+BUILD_DIR  = build
+BIN_DIR    = $(BUILD_DIR)/bin
+NEURON_DIR = $(SRC_DIR)/neurons
+GATES_DIR  = $(NEURON_DIR)/gates
+MNIST_DIR  = $(NEURON_DIR)/mnist
 
 # Matrix static library
 TARGET_MAT = $(BUILD_DIR)/libmat.a
@@ -27,22 +29,25 @@ MAT_SRCS   = $(SRC_DIR)/mat.c $(SRC_DIR)/rng.c
 MAT_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/mat/%.o, $(MAT_SRCS))
 
 # Gates executable
-TARGET_NEURON_GATES = $(BIN_DIR)/neuron_gates
-NEURON_GATES_MAIN   = $(SRC_DIR)/neuron_gates.c
-NEURON_GATES_SRCS   = $(NEURON_GATES_MAIN) \
-	$(NEURON_GATES_DIR)/linear.c \
-	$(NEURON_GATES_DIR)/hidden.c \
-	$(NEURON_GATES_DIR)/gates.c \
+TARGET_GATES = $(BIN_DIR)/gates
+GATES_SRCS   = $(wildcard $(GATES_DIR)/*.c) \
 	$(SRC_DIR)/activation.c \
 	$(SRC_DIR)/rng.c
-NEURON_GATES_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/neuron_gates/%.o, $(NEURON_GATES_SRCS))
+GATES_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/gates/%.o, $(GATES_SRCS))
 
 # MNIST executable
 TARGET_MNIST = $(BIN_DIR)/mnist
-MNIST_SRCS   = $(NEURON_GATES_DIR)/mnist.c \
+MNIST_SRCS   = $(MNIST_DIR)/mnist.c \
 	$(SRC_DIR)/activation.c \
 	$(SRC_DIR)/rng.c
 MNIST_OBJS   = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/mnist/%.o, $(MNIST_SRCS))
+
+# MNIST dataset paths
+MNIST_DATA_DIR ?= $(MNIST_DIR)/data
+MNIST_ARGS     ?= $(MNIST_DATA_DIR)/train-images-idx3-ubyte \
+                  $(MNIST_DATA_DIR)/train-labels-idx1-ubyte \
+                  $(MNIST_DATA_DIR)/t10k-images-idx3-ubyte \
+                  $(MNIST_DATA_DIR)/t10k-labels-idx1-ubyte
 
 # Test targets
 TEST_DIR        = tests
@@ -59,12 +64,12 @@ BENCH_SRC = $(BENCH_DIR)/benchmark.c
 BENCH_BIN = $(BIN_DIR)/bench
 
 # Include all generated .d dependency files that already exist
-ALL_OBJS = $(MAT_OBJS) $(NEURON_GATES_OBJS) $(MNIST_OBJS)
+ALL_OBJS = $(MAT_OBJS) $(GATES_OBJS) $(MNIST_OBJS)
 DEPS     = $(wildcard $(ALL_OBJS:.o=.d))
 
-.PHONY: all clean mat neuron-gates neuron-gates-run mnist mnist-run test test-tsan test-ubsan bench
+.PHONY: all clean mat gates gates-run mnist mnist-run mnist-run-args test test-tsan test-ubsan bench
 
-all: $(BUILD_DIR) $(BIN_DIR) $(TARGET_NEURON_GATES) $(TARGET_MNIST)
+all: $(BUILD_DIR) $(BIN_DIR) $(TARGET_GATES) $(TARGET_MNIST)
 
 $(BUILD_DIR) $(BIN_DIR):
 	mkdir -p $@
@@ -77,13 +82,13 @@ $(TARGET_MAT): $(MAT_OBJS)
 	$(AR) $(ARFLAGS) $@ $(MAT_OBJS)
 
 # Neuron gates build & run
-neuron-gates: $(TARGET_NEURON_GATES)
+gates: $(TARGET_GATES)
 
-$(TARGET_NEURON_GATES): $(NEURON_GATES_OBJS) $(TARGET_MAT) | $(BIN_DIR)
-	$(CC) $(NEURON_GATES_OBJS) $(TARGET_MAT) -o $@ $(LDFLAGS)
+$(TARGET_GATES): $(GATES_OBJS) $(TARGET_MAT) | $(BIN_DIR)
+	$(CC) $(GATES_OBJS) $(TARGET_MAT) -o $@ $(LDFLAGS)
 
-neuron-gates-run: $(TARGET_NEURON_GATES)
-	./$(TARGET_NEURON_GATES)
+gates-run: $(TARGET_GATES)
+	./$(TARGET_GATES)
 
 # MNIST build & run
 mnist: $(TARGET_MNIST)
@@ -94,12 +99,15 @@ $(TARGET_MNIST): $(MNIST_OBJS) $(TARGET_MAT) | $(BIN_DIR)
 mnist-run: $(TARGET_MNIST)
 	./$(TARGET_MNIST)
 
+mnist-run-args: $(TARGET_MNIST)
+	./$(TARGET_MNIST) $(MNIST_ARGS)
+
 # Generic object compilation rules
 $(BUILD_DIR)/mat/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/neuron_gates/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/gates/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

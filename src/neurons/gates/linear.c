@@ -1,7 +1,7 @@
 #include "train.h"
-#include "../activation.h"
-#include "../rng.h"
-#include "../../include/mat.h"
+#include "../../activation.h"
+#include "../../rng.h"
+#include "../../../include/mat.h"
 #include <stdio.h>
 
 #define INPUT_DIM  2
