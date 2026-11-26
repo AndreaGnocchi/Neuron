@@ -434,18 +434,22 @@ int main(int argc, char* argv[]) {
   float lr       = 0.01f;
 
   dataset_t train_ds, test_ds;
-  if (argc >= 5) {
+  if (argc == 5) {
     train_ds = load_mnist(argv[1], argv[2]);
     test_ds  = load_mnist(argv[3], argv[4]);
     if (train_ds.count == -1 || test_ds.count == -1) {
-      return -1;
+      return 1;
     }
     printf("Loaded MNIST: %d train, %d test samples\n", train_ds.count, test_ds.count);
-  } else {
+  } else if (argc == 1) {
     printf("No MNIST IDX paths provided; running on synthetic 28x28 dataset.\n");
-    printf("Usage: %s train-images train-labels t10k-images t10k-labels\n", argv[0]);
     train_ds = make_fake_dataset(2048, 42ULL);
     test_ds  = make_fake_dataset(512, 1337ULL);
+  } else {
+    fprintf(stderr,
+            "Usage: %s [train-images train-labels t10k-images t10k-labels]\n",
+            argv[0]);
+    return 1;
   }
 
   mlp_t net = mlp_create(123456ULL);
